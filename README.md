@@ -1,4 +1,4 @@
-# IF you want just run test invairment or up web-site without GH Actions (CI/CD):
+# IF you want just run test environment or up website without GH Actions (CI/CD):
 
 1) Place Dockerfile in working directory and run command: 
 
