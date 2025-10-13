@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  app:
+    image: ${IMAGE_NAME:-ghcr.io/vilgosha/pidupall}:${APP_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    expose:
+      - "3000"
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    driver: bridge
+    external: true
