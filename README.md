@@ -1,145 +1,76 @@
-# IF you want just run test environment or up website without GH Actions (CI/CD):
+# pidupall-prod-infra
 
-1) Place Dockerfile in working directory and run command: 
+Production infrastructure for the pidupall project. Next.js app running in Docker, served over HTTPS via Caddy, deployed automatically to a VPS on every push to `main` using GitHub Actions.
 
-        docker build -t image_name . 
+## How it works
 
-2) Push your image in DockerHub(optional!):
+```
+Push to main
+     │
+     ▼
+GitHub Actions
+  ├── Build multi-stage Docker image
+  ├── Push to GHCR (tagged: latest, git SHA, timestamp)
+  └── SSH into server → pull new image → docker compose up
+           │
+           ▼
+        [ Caddy ] — TLS (auto Let's Encrypt), www redirect, security headers
+           │
+           ▼
+        [ Next.js app ] — standalone build, non-root user, port 3000
+```
 
-        docker login
+## Files
 
-        docker push NAME[:TAG]
+- `Dockerfile` — multi-stage build: Node 24 Alpine builder → minimal runner, non-root `nextjs` user
+- `docker-compose.yml` — app service, image tag injected via env vars, connected to external `monitoring` network
+- `Caddyfile` — HTTPS termination, www → apex redirect, HSTS + security headers, `/healthz` endpoint
+- `deploy.yml` — GitHub Actions workflow: build → push to GHCR → SSH deploy
 
-        docker push DH_Name/iamge_name:latest
-3) Run your docker container:
+## CI/CD setup
 
-       docker run -d -p 8080:3000 image_name
+You'll need these **secrets** in your GitHub repo:
 
-4) Check if website is avaliable in browser:
+| Secret | What it is |
+|---|---|
+| `DEPLOY_HOST` | Server IP |
+| `DEPLOY_KEY` | SSH private key |
+| `DEPLOY_PORT` | SSH port (22 if standard) |
+| `DEPLOY_USER` | Deploy user on the server |
+| `GHCR_USER` | Your GitHub username |
+| `GHCR_TOKEN` | Personal access token for GHCR |
 
-       localhost:8080
+And these **variables**:
 
-5) If you see project web-site then you did everything right!
+| Variable | Example |
+|---|---|
+| `DEPLOY_PATH` | `/home/deploy/pidupall` |
+| `IMAGE_NAME` | `ghcr.io/yourusername/pidupall` |
 
-   If not then it's time to investigate what's wrong :)
+## Server setup
 
-   Remember right now your website do NOT have encryption.
-6) To encrypt website use Caddyfile and Caddy container.
+```bash
+# Create a dedicated deploy user
+sudo adduser deploy
+sudo usermod -aG docker deploy
 
-   I would recommend run Caddy container separately if you planning encrypt another websites, services etc.
+# Add your public SSH key
+echo "your-public-key" >> /home/deploy/.ssh/authorized_keys
 
-   Ready to go docker-compose for website + encryption:
+# Disable password auth
+# /etc/ssh/sshd_config → PubkeyAuthentication yes, PasswordAuthentication no
+```
 
-        version: "3.9"
+Caddy runs separately and proxies to the app container. If you're already running Caddy, just append the config from `Caddyfile` to your existing one.
 
-        services:
-          caddy:
-            image: caddy:2
-            restart: unless-stopped
-            ports:
-              - "80:80"
-              - "443:443"
+## Running locally (no CI/CD)
 
-            volumes:
-              - ./Caddyfile:/etc/caddy/Caddyfile:ro # config
-              - caddy_data:/data # certs + ACME account
-              - caddy_config:/config # admin/config state
-            depends_on:
-              - app
+```bash
+docker build -t pidupall .
+docker run -d -p 3000:3000 pidupall
+# open localhost:3000
+```
 
-          app:
-            image: image_name
-            restart: unless-stopped
-            environment:
-              - NODE_ENV=production
-            expose:
-              - "3000"
+## Stack
 
-        volumes:
-          caddy_data:
-          caddy_config:
-
-   Caddyfile:
-
-        {
-                email example@gmail.com
-        }
-
-        # Redirect www 
-        www.yourdomain.com {
-                redir https://yourdomain.com{uri} permanent
-        }
-
-        # Primary site
-        yourdomain.com {
-                encode zstd gzip
-
-                header {
-                        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-                        X-Content-Type-Options "nosniff"
-                        X-Frame-Options "DENY"
-                        Referrer-Policy "no-referrer-when-downgrade"
-                }
-
-                # Reverse proxy to the app service in Docker
-                reverse_proxy app:3000 
-
-                @health path /healthz
-                handle @health {
-                        respond "ok" 200
-                }
-        }
-
-# If you want run pidupall project with encryption and CI/CD pipeline:
-
-1) Create deploy user on server and add him into docker group.
-
-        sudo adduser deploy
-        sudo usermod -aG docker deploy
-   User should be also placed in GitHub Repository Secrets as DEPLOY_USER
-  
-3) Allow connection only via SSH keys (PubkeyAuthentication).
-
-        /etc/ssh/sshd_config
- 
-4) Generate SSH keys.
-
-        ssh-keygen
-   Publick key must be placed in /home/deploy/.ssh/authorized_keys.
-   
-   Private key shoud be place in GitHub Pepository Secrets as DEPLOY_KEY.
-
-5) In target GitHub repository you should have:
-   
-   DEPLOY_HOST - your server public ip address
-
-   DEPLOY_KEY - your SSH private key
-
-   DEPLOY_PORT - add if you have custom port for deployment if not then set 22 
-
-   DEPLOY_USER - your user created for deployment
-
-   GHCR_TOKEN - generated automatically by deploy.yml in GH actions
-
-   GHCR_USER - in this case it's your GitHub User
-
-6) Add repository variables:
-   
-   DEPLOY_PATH - /home/deploy/pidupall (example)
-
-   IMAGE_NAME - ghcr.io/vilgosha/pidupall (example)
-
-8) Add Dockerfile, .dockerignore, docker-compose.yml in repository main branch.
-
-9) Also start container with Caddy for encryption. (If already exist then add attached Caddyfile config into Caddyfile on server.)
-
-
-10) Now then almost everything ready we can try to start our GH actions.
-
-   Go into target repository -> Actions -> New workflow -> set up a workflow yourself and add there configuration from deploy.yml file.
-
-11) Now you can see running CI/CD pipeline.
-
-
-## If any question feel free to ask. 
-
+Next.js · Docker · GitHub Actions · GHCR · Caddy · Let's Encrypt
